@@ -16,6 +16,8 @@ if (!\defined('_PS_VERSION_')) {
 
 class Processor
 {
+	private const ORDER_CREATION_LOCK_TIMEOUT_SECONDS = 10;
+
 	/**
 	 * @var \BTCPay
 	 */
@@ -179,6 +181,27 @@ class Processor
 	 */
 	public function paymentReceivedCreateAfter(BitcoinPayment $bitcoinPayment): void
 	{
+		$cartId = $bitcoinPayment->getCartId();
+
+		// Serialize creation so the webhook and customer return cannot both create an order
+		if (false === $this->acquireOrderCreationLock($cartId)) {
+			return;
+		}
+
+		try {
+			$this->createOrderAfterPayment($bitcoinPayment);
+		} finally {
+			$this->releaseOrderCreationLock($cartId);
+		}
+	}
+
+	/**
+	 * @throws \JsonException
+	 * @throws \PrestaShopDatabaseException
+	 * @throws \PrestaShopException
+	 */
+	private function createOrderAfterPayment(BitcoinPayment $bitcoinPayment): void
+	{
 		// Generate an order only if there is not another one with this cart
 		if (null !== ($existing = \Order::getByCartId($bitcoinPayment->getCartId()))) {
 			if (false === $bitcoinPayment->hasOrder()) {
@@ -275,6 +298,32 @@ class Processor
 
 			throw new \RuntimeException($error);
 		}
+	}
+
+	/**
+	 * Acquire a connection-scoped MySQL advisory lock for a cart.
+	 *
+	 * The lock is shared across PHP processes, so it serializes the webhook and
+	 * customer return paths. MySQL releases it automatically if the process dies.
+	 */
+	private function acquireOrderCreationLock(int $cartId): bool
+	{
+		$lockName = \sprintf('btcpay_order_cart_%d', $cartId);
+		$acquired = \Db::getInstance()->getValue(\sprintf("SELECT GET_LOCK('%s', %d)", $lockName, self::ORDER_CREATION_LOCK_TIMEOUT_SECONDS), false);
+
+		if ('1' === (string) $acquired) {
+			return true;
+		}
+
+		\PrestaShopLogger::addLog(\sprintf("[WARN] Could not acquire order creation lock for cart '%d'", $cartId), \PrestaShopLogger::LOG_SEVERITY_LEVEL_WARNING, null, 'Cart', $cartId);
+
+		return false;
+	}
+
+	private function releaseOrderCreationLock(int $cartId): void
+	{
+		$lockName = \sprintf('btcpay_order_cart_%d', $cartId);
+		\Db::getInstance()->getValue(\sprintf("SELECT RELEASE_LOCK('%s')", $lockName), false);
 	}
 
 	/**
