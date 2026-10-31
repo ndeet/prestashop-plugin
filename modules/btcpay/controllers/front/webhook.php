@@ -81,7 +81,8 @@ class BTCPayWebhookModuleFrontController extends \ModuleFrontController
 		// If the module is inactive, or we don't receive a signature, or we don't have the webhook secret, just return
 		if (!$this->module->active
 			|| null === ($signature = $request->headers->get(Constants::BTCPAY_HEADER_SIG))
-			|| false === ($secret = $this->configuration->get(Constants::CONFIGURATION_BTCPAY_WEBHOOK_SECRET))) {
+			|| false === ($secret = $this->configuration->get(Constants::CONFIGURATION_BTCPAY_WEBHOOK_SECRET))
+			|| '' === (string) $secret) {
 			header('HTTP/1.1 400 Bad Request');
 			exit;
 		}
