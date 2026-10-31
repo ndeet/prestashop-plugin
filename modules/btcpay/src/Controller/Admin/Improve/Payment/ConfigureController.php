@@ -321,7 +321,8 @@ class ConfigureController extends FrameworkBundleAdminController
 		$previousStoreId   = $shopConfiguration->get(Constants::CONFIGURATION_BTCPAY_STORE_ID) ?: null;
 
 		// Build the client
-		$client = new Client($configuration->getHost(), $configuration->getApiKey());
+		$client  = new Client($configuration->getHost(), $configuration->getApiKey());
+		$storeId = null;
 
 		try {
 			// Validate created API key and return any errors we encounter
@@ -383,6 +384,9 @@ class ConfigureController extends FrameworkBundleAdminController
 			$this->addFlash('error', \sprintf('BTCPay Server plugin: %s', $throwable->getMessage()));
 			PrestaShopLogger::addLog(\sprintf('[ERROR] An error occurred during setup: %s', $throwable), PrestaShopLogger::LOG_SEVERITY_LEVEL_ERROR, $throwable->getCode());
 
+			// Roll back any webhook that was created for the tentative configuration
+			$client->webhook()->removeCurrent($storeId);
+
 			// Ensure nothing is saved
 			$shopConfiguration->set(Constants::CONFIGURATION_BTCPAY_API_KEY, null);
 			$shopConfiguration->set(Constants::CONFIGURATION_BTCPAY_STORE_ID, null);
@@ -420,6 +424,9 @@ class ConfigureController extends FrameworkBundleAdminController
 		}
 
 		// If we have an apiKey, check if it's valid by fetching the storeId
+		$client  = null;
+		$storeID = null;
+
 		try {
 			$client = new Client($configuration->getHost(), $apiKey);
 
@@ -437,6 +444,11 @@ class ConfigureController extends FrameworkBundleAdminController
 
 			return $this->redirectToRoute('admin_btcpay_configure');
 		} catch (Throwable) {
+			// Roll back any webhook that was created for the failed configuration
+			if (null !== $client) {
+				$client->webhook()->removeCurrent($storeID);
+			}
+
 			// Reset BTCPay details
 			$this->getConfiguration()->set(Constants::CONFIGURATION_BTCPAY_API_KEY, null);
 			$this->getConfiguration()->set(Constants::CONFIGURATION_BTCPAY_WEBHOOK_ID, null);
