@@ -208,6 +208,10 @@ class Processor
 		// Get the store ID
 		$storeID = $this->configuration->get(Constants::CONFIGURATION_BTCPAY_STORE_ID);
 
+		// Use the order currency precision when recording the converted amount
+		$currency  = \Currency::getCurrencyInstance((int) $order->id_currency);
+		$precision = \Validate::isLoadedObject($currency) ? (int) $currency->precision : 2;
+
 		// Grab the payments from the server
 		$paymentMethods = $this->client->invoice()->getPaymentMethods($storeID, $bitcoinPayment->getInvoiceId());
 
@@ -228,12 +232,12 @@ class Processor
 					continue;
 				}
 
-				// Convert the settled payment to the order currency
-				$amount = \bcmul($payment->getValue(), $paymentMethod->getRate(), 8);
+				// Convert the settled payment to the order currency with the proper precision
+				$amount = CheckoutGuard::convertAmount($payment->getValue(), $paymentMethod->getRate(), $precision);
 
 				// Never record a zero or negative payment row
-				if (false === CheckoutGuard::isPositiveAmount($amount)) {
-					\PrestaShopLogger::addLog(\sprintf("[WARNING] Ignoring settled payment '%s' with non-positive amount '%s'", $payment->getTransactionId(), $amount), \PrestaShopLogger::LOG_SEVERITY_LEVEL_WARNING, null, 'Order', $order->id);
+				if (null === $amount) {
+					\PrestaShopLogger::addLog(\sprintf("[WARNING] Ignoring settled payment '%s' with invalid or non-positive amount '%s' (rate '%s')", $payment->getTransactionId(), $payment->getValue(), $paymentMethod->getRate()), \PrestaShopLogger::LOG_SEVERITY_LEVEL_WARNING, null, 'Order', $order->id);
 
 					continue;
 				}

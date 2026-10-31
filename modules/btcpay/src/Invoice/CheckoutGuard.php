@@ -31,6 +31,26 @@ class CheckoutGuard
 		return self::isNonNegativeAmount($value) && 0 < \bccomp($value, '0', 8);
 	}
 
+	/**
+	 * Convert a crypto amount with its rate and round to the currency precision.
+	 *
+	 * Returns null when either input is malformed or the converted amount is not
+	 * positive.
+	 */
+	public static function convertAmount(string $value, string $rate, int $precision): ?float
+	{
+		if (false === self::isNonNegativeAmount($value) || false === self::isNonNegativeAmount($rate)) {
+			return null;
+		}
+
+		$converted = \bcmul($value, $rate, 8);
+		if (false === self::isPositiveAmount($converted)) {
+			return null;
+		}
+
+		return \round((float) $converted, \max(0, $precision));
+	}
+
 	public static function canCreateOrder(bool $partial, bool $processing, bool $paidLate, bool $overpaid, bool $settled): bool
 	{
 		return $partial || $processing || $paidLate || $overpaid || $settled;
