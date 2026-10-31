@@ -11,6 +11,7 @@ use BTCPay\Server\Client;
 use BTCPay\Server\Data\ValidateApiKey;
 use BTCPay\Server\RateFallbackStatus;
 use BTCPayServer\Client\ApiKey;
+use BTCPayServer\Exception\ConnectException;
 use Exception;
 use PrestaShop\PrestaShop\Core\Domain\Configuration\ShopConfigurationInterface;
 use PrestaShop\PrestaShop\Core\Form\FormHandlerInterface;
@@ -317,6 +318,7 @@ class ConfigureController extends FrameworkBundleAdminController
 	{
 		// Get configuration container
 		$shopConfiguration = $this->getConfiguration();
+		$previousStoreId   = $shopConfiguration->get(Constants::CONFIGURATION_BTCPAY_STORE_ID) ?: null;
 
 		// Build the client
 		$client = new Client($configuration->getHost(), $configuration->getApiKey());
@@ -369,6 +371,14 @@ class ConfigureController extends FrameworkBundleAdminController
 
 			// Ensure we have a webhook
 			$client->webhook()->ensureWebhook($storeId);
+		} catch (ConnectException $exception) {
+			// A network failure is transient: keep the existing credentials and undo the tentative store ID
+			$this->addFlash('error', \sprintf('BTCPay Server plugin: could not reach the server (%s). Your existing configuration was kept.', $exception->getMessage()));
+			PrestaShopLogger::addLog(\sprintf('[WARNING] Could not reach BTCPay Server during setup, keeping existing configuration: %s', $exception->getMessage()), PrestaShopLogger::LOG_SEVERITY_LEVEL_WARNING);
+
+			$shopConfiguration->set(Constants::CONFIGURATION_BTCPAY_STORE_ID, $previousStoreId);
+
+			return $this->redirectToRoute('admin_btcpay_configure');
 		} catch (Throwable $throwable) {
 			$this->addFlash('error', \sprintf('BTCPay Server plugin: %s', $throwable->getMessage()));
 			PrestaShopLogger::addLog(\sprintf('[ERROR] An error occurred during setup: %s', $throwable), PrestaShopLogger::LOG_SEVERITY_LEVEL_ERROR, $throwable->getCode());
@@ -420,6 +430,12 @@ class ConfigureController extends FrameworkBundleAdminController
 
 			// Ensure we have a webhook
 			$client->webhook()->ensureWebhook($storeID);
+		} catch (ConnectException $exception) {
+			// A network failure is transient: keep the credentials and retry from the configuration page
+			$this->addFlash('error', \sprintf('BTCPay Server plugin: could not reach the server (%s). Your existing configuration was kept.', $exception->getMessage()));
+			PrestaShopLogger::addLog(\sprintf('[WARNING] Could not reach BTCPay Server while checking the webhook, keeping existing configuration: %s', $exception->getMessage()), PrestaShopLogger::LOG_SEVERITY_LEVEL_WARNING);
+
+			return $this->redirectToRoute('admin_btcpay_configure');
 		} catch (Throwable) {
 			// Reset BTCPay details
 			$this->getConfiguration()->set(Constants::CONFIGURATION_BTCPAY_API_KEY, null);

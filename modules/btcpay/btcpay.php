@@ -12,6 +12,7 @@ use BTCPay\Repository\TableRepository;
 use BTCPay\Server\Client;
 use BTCPay\Server\RateFallbackStatus;
 use BTCPayServer\Exception\BTCPayException;
+use BTCPayServer\Exception\ConnectException;
 use BTCPayServer\Exception\RequestException;
 use PrestaShop\PrestaShop\Adapter\Configuration;
 use PrestaShop\PrestaShop\Adapter\Presenter\Order\OrderPresenter;
@@ -499,6 +500,18 @@ class BTCPay extends PaymentModule
 				&& RateFallbackStatus::resolve($client->storeRate(), (string) $storeId)->isMissing()) {
 				$this->warning = $this->trans('Your BTCPay Server store has no fallback rate provider. If the primary rate source fails, invoices cannot be created. Configure a fallback rate in BTCPay Server.', [], 'Modules.Btcpay.Admin');
 			}
+		} catch (ConnectException $exception) {
+			// A network failure is transient, so keep the configuration and only warn
+			PrestaShopLogger::addLog(
+				\sprintf('[WARNING] Could not reach BTCPay Server, keeping host and API key. Error: %s', $exception->getMessage()),
+				\PrestaShopLogger::LOG_SEVERITY_LEVEL_WARNING,
+				$exception->getCode()
+			);
+
+			$this->warning = $this->trans('Could not reach your BTCPay Server. Your configuration has been kept; payment option may be unavailable until the server is reachable.', [], 'Modules.Btcpay.Admin');
+
+			// Bail
+			return;
 		} catch (BTCPayException $exception) {
 			// Log the exception
 			PrestaShopLogger::addLog(
