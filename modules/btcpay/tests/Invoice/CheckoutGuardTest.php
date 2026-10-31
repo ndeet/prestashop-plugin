@@ -45,6 +45,16 @@ class CheckoutGuardTest extends TestCase
 		$this->assertTrue(CheckoutGuard::isPositiveAmount('12.99'));
 	}
 
+	public function testConvertAmountRoundsToCurrencyPrecision(): void
+	{
+		$this->assertSame(12.35, CheckoutGuard::convertAmount('0.001', '12345.6789', 2));
+		$this->assertSame(12.0, CheckoutGuard::convertAmount('0.001', '12345.6789', 0));
+		$this->assertSame(0.5, CheckoutGuard::convertAmount('0.5', '1', 2));
+		$this->assertNull(CheckoutGuard::convertAmount('0', '12345', 2));
+		$this->assertNull(CheckoutGuard::convertAmount('-0.001', '12345', 2));
+		$this->assertNull(CheckoutGuard::convertAmount('0.001', 'not-a-rate', 2));
+	}
+
 	public function testCanCreateOrderRequiresAtLeastOnePaymentState(): void
 	{
 		$this->assertFalse(CheckoutGuard::canCreateOrder(false, false, false, false, false));
