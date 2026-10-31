@@ -3,6 +3,7 @@
 use BTCPay\Constants;
 use BTCPay\Server\Client;
 use BTCPay\Server\WebhookHandler;
+use BTCPay\Server\WebhookRequestGuard;
 use PrestaShop\PrestaShop\Adapter\Configuration;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -78,6 +79,19 @@ class BTCPayWebhookModuleFrontController extends \ModuleFrontController
 			exit;
 		}
 
+		// BTCPay sends JSON; reject other media types before parsing the body
+		if (false === WebhookRequestGuard::hasJsonContentType($request->headers->get('Content-Type'))) {
+			header('HTTP/1.1 415 Unsupported Media Type');
+			exit;
+		}
+
+		// Reject oversized requests before reading the body when the size is declared
+		$declaredLength = $request->headers->get('Content-Length');
+		if (null !== $declaredLength && \ctype_digit((string) $declaredLength) && false === WebhookRequestGuard::isWithinBodyLimit((int) $declaredLength)) {
+			header('HTTP/1.1 413 Payload Too Large');
+			exit;
+		}
+
 		// If the module is inactive, or we don't receive a signature, or we don't have the webhook secret, just return
 		if (!$this->module->active
 			|| null === ($signature = $request->headers->get(Constants::BTCPAY_HEADER_SIG))
@@ -89,13 +103,29 @@ class BTCPayWebhookModuleFrontController extends \ModuleFrontController
 		// Grab the body of the request
 		$body = $request->getContent();
 
+		// Enforce the body limit when no usable Content-Length header was supplied
+		if (false === WebhookRequestGuard::isWithinBodyLimit(\strlen($body))) {
+			header('HTTP/1.1 413 Payload Too Large');
+			exit;
+		}
+
 		// Validate the HMAC first, log the error and return a 401 error if the signature does not match
-		if (false === $this->client->webhook()->isIncomingWebhookRequestValid($request->getContent(), $signature, $secret)) {
+		if (false === $this->client->webhook()->isIncomingWebhookRequestValid($body, $signature, $secret)) {
 			\PrestaShopLogger::addLog(
 				'Invalid BTCPay Server payment notification message received - signature did not match.',
 				\PrestaShopLogger::LOG_SEVERITY_LEVEL_WARNING
 			);
 			header('HTTP/1.1 401 Unauthorized');
+			exit;
+		}
+
+		// Reject malformed JSON before handing the request to the handler
+		if (false === WebhookRequestGuard::isValidJson($body)) {
+			\PrestaShopLogger::addLog(
+				'Invalid BTCPay Server payment notification message received - body is not a JSON object.',
+				\PrestaShopLogger::LOG_SEVERITY_LEVEL_WARNING
+			);
+			header('HTTP/1.1 400 Bad Request');
 			exit;
 		}
 
